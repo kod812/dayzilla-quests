@@ -310,6 +310,19 @@
   .lanelab.collapsed:hover .lane-label{fill:#a9bbdb}
   .colmeta{fill:#5b6b8b;font-size:10.5px;font-weight:600;pointer-events:none;text-anchor:end}
 
+  /* ручка шторки — на десктопе не нужна */
+  .sheet-grip{
+    display:none;position:absolute;top:-28px;left:0;right:0;height:28px;
+    background:none;border:0;padding:0;cursor:grab;touch-action:none;
+    place-items:center;
+  }
+  .sheet-grip i{
+    display:block;width:48px;height:4px;border-radius:99px;background:#3d4b64;
+    transition:background .15s,width .15s;
+  }
+  .sheet-grip:active{cursor:grabbing}
+  .sheet-grip:active i{background:var(--accent2);width:58px}
+
   .toast{
     position:absolute;left:50%;top:18px;transform:translateX(-50%) translateY(-18px);
     display:flex;align-items:center;gap:11px;white-space:nowrap;
@@ -360,6 +373,74 @@
   }
   @media (max-width:700px){
     #fStatus{display:none}
+  }
+
+  /* ================= ТЕЛЕФОН =================
+     Десктоп выше не трогаем — всё, что ниже, только до 820px. */
+  @media (max-width:820px){
+    /* шапка в две строки: поиск во всю ширину, кнопки лентой */
+    header.top{flex-wrap:wrap;gap:8px;padding:8px 10px}
+    .logo b{font-size:15px}
+    .grow{display:none}
+    .toolbar{
+      order:9;width:100%;justify-content:flex-start;
+      overflow-x:auto;overflow-y:hidden;scrollbar-width:none;
+    }
+    .toolbar::-webkit-scrollbar{display:none}
+    .toolbar .wide{display:block;order:-1;flex:1 0 100%;margin-bottom:1px}
+    .field input{width:100%}
+    .toolbar .btn{flex:0 0 auto}
+    .tsep{display:none}
+
+    /* рельс веток: горизонтальная лента чипсов */
+    .rail{
+      position:absolute;left:0;right:0;top:0;bottom:auto;
+      width:auto;height:46px;border-right:none;border-bottom:1px solid #1b2434;
+      display:flex;align-items:center;gap:6px;
+      padding:0 8px;pointer-events:auto;overflow-x:auto;overflow-y:hidden;
+      scrollbar-width:none;
+      background:linear-gradient(180deg,rgba(13,17,23,.97) 76%,rgba(13,17,23,0) 100%);
+    }
+    .rail::-webkit-scrollbar{display:none}
+    .rail-item{
+      position:static;flex:0 0 auto;width:auto;height:auto;
+      padding:5px 12px;border-radius:99px;display:flex;align-items:center;
+    }
+    .rail-item .n,.rail-item .p{display:none}
+    .rail-item.mini{display:flex;padding:5px 12px}
+    .rail-item.mini .t{font-size:12.5px}
+    .rail-item .t{font-size:12.5px}
+
+    /* панель квеста превращается в шторку снизу */
+    aside{
+      position:fixed;left:0;right:0;top:auto;bottom:0;
+      width:auto;flex:none;height:64vh;max-height:64vh;
+      border-left:none;border-top:1px solid var(--line2);
+      border-radius:16px 16px 0 0;
+      box-shadow:0 -14px 42px rgba(0,0,0,.68);
+      transform:translateY(100%);
+      transition:transform .28s cubic-bezier(.32,.72,.35,1);
+      z-index:80;
+    }
+    aside.open{transform:translateY(0)}
+    aside.dragging{transition:none}
+    body.no-panel aside{display:flex}
+    /* ручка торчит над шторкой и служит за неё — подложка делает её заметной */
+    .sheet-grip{
+      display:grid;top:-30px;height:30px;
+      background:linear-gradient(180deg,#1d2739 62%,rgba(29,39,57,0));
+      border-radius:13px 13px 0 0;
+    }
+    .sheet-grip i{width:52px;height:5px;background:#61729a}
+
+    /* список найденного — во всю ширину и не под шторкой */
+    .results{left:8px;right:8px;width:auto;bottom:8px;max-height:36%}
+    body.sheet-open .results{bottom:calc(64vh + 8px)}
+
+    /* зум и проценты встают столбиком над шторкой — ручка занимает самый низ */
+    body.sheet-open .zoomctl{bottom:calc(64vh + 30px)}
+    body.sheet-open .zoompct{bottom:calc(64vh + 64px)}
+    .toast{top:54px;white-space:normal;max-width:88%;text-align:center}
   }
 </style>
 </head>
@@ -451,6 +532,8 @@
     </div>
 
     <aside id="side" class="empty">
+      <button class="sheet-grip" id="sheetGrip" type="button"
+              aria-label="Потянуть панель — открыть или закрыть"><i></i></button>
       <div class="aside-body" id="sideBody"></div>
       <a class="corner-link" href="https://dayzilla.ru/" target="_blank" rel="noopener noreferrer">
         <span class="cl-dot"></span>Dayzilla.ru</a>
@@ -701,10 +784,22 @@ function focusCurrent(){
   if (q) toast(`${q.num}. ${q.name}`, "◎");
 }
 
-function setPanel(show){
+// На телефоне панель — шторка снизу, а не колонка справа.
+function isSheet(){ return window.matchMedia("(max-width:820px)").matches; }
+
+function openSheet(on){
+  const a = $("#side"); if (!a) return;
+  a.classList.toggle("open", !!on);
+  a.classList.remove("dragging");
+  a.style.transform = "";
+  document.body.classList.toggle("sheet-open", !!on);
+}
+
+function setPanel(show, keepClosed){
   S.noPanel = !show;
   document.body.classList.toggle("no-panel", S.noPanel);
   $("#fPanel").classList.toggle("on", !S.noPanel);
+  if (isSheet()) openSheet(show && !keepClosed);
   save();
   applyCam();
 }
@@ -747,9 +842,10 @@ function fit(){
   resetView(PAD);
 }
 function resetView(x0){
-  cam.k = DEFAULT_ZOOM;
-  cam.x = RAIL_W + 18 - x0 * cam.k;
-  cam.y = Math.max(10, (stage.clientHeight - BOUNDS.h * cam.k) / 2);
+  cam.k = isSheet() ? .45 : DEFAULT_ZOOM;      // на телефоне 70% — слишком крупно
+  const top = isSheet() ? 54 : 10;              // сверху лента веток
+  cam.x = (isSheet() ? 14 : RAIL_W + 18) - x0 * cam.k;
+  cam.y = Math.max(top, top + (stage.clientHeight - BOUNDS.h * cam.k) / 2);
   applyCam();
 }
 function zoomAt(px, py, f){
@@ -761,8 +857,15 @@ function zoomAt(px, py, f){
 function centerOn(id, k){
   const p = POS.get(id); if (!p) return;
   if (k) cam.k = clamp(k, .3, 1.8);
+  // на телефоне видно не всю сцену: сверху лента веток, снизу шторка
+  let top = 0, bot = 0;
+  if (isSheet()){
+    top = 54;
+    if (document.body.classList.contains("sheet-open")) bot = stage.clientHeight * .64;
+  }
+  const visH = Math.max(80, stage.clientHeight - top - bot);
   cam.x = stage.clientWidth/2  - (p.x + p.w/2)*cam.k;
-  cam.y = stage.clientHeight/2 - (p.y + p.h/2)*cam.k;
+  cam.y = top + visH/2 - (p.y + p.h/2)*cam.k;
   applyCam();
 }
 
@@ -1053,12 +1156,15 @@ function positionRail(done){
   const items = $("#rail").querySelectorAll(".rail-item");
   MODEL.branches.forEach((b,i) => {
     const it = items[i]; if (!it) return;
+    const p = it.querySelector(".p");
+    if (p) p.textContent = b.empty ? "пусто"
+      : `${b.quests.filter(q => S.done.has(q.id)).length} / ${b.quests.length}`;
+    // на телефоне чипы лежат лентой — привязки к координатам карты не нужно
+    if (isSheet()){ it.style.top = ""; it.style.height = ""; it.classList.remove("mini"); return; }
     const h = Math.max(22, b._h * cam.k);
     it.style.top = (cam.y + b._y * cam.k + 2) + "px";
     it.style.height = h + "px";
     it.classList.toggle("mini", h < 46);
-    it.querySelector(".p").textContent = b.empty ? "пусто"
-      : `${b.quests.filter(q => S.done.has(q.id)).length} / ${b.quests.length}`;
   });
 }
 function buildRail(){
@@ -1231,6 +1337,7 @@ function select(id, fly){
   if (S.noPanel) setPanel(true);          // клик по квесту всегда открывает панель
   S.sel = id; renderSide(); refresh();
   if (fly && POS.has(id)) centerOn(id, Math.max(cam.k, .8));
+  if (isSheet()) openSheet(true);          // тап по квесту — выезжает шторка
 }
 
 // Клик по свёрнутой ветке (на карте или в рельсе) раскрывает ровно её и открывает панель.
@@ -1310,6 +1417,7 @@ function showBranch(i){
     if (j >= 0) openBranch(j);
   }));
   refresh();
+  if (isSheet()) openSheet(true);          // на телефоне панель выезжает шторкой
 }
 
 /* ============================== 7. СОБЫТИЯ ============================== */
@@ -1339,7 +1447,10 @@ $("#cv").addEventListener("pointermove", e => {
 });
 $("#cv").addEventListener("pointerup", e => {
   stage.classList.remove("drag");
-  if (drag && !drag.moved && drag.id) select(drag.id);
+  if (drag && !drag.moved){
+    if (drag.id) select(drag.id);
+    else if (isSheet()) openSheet(false);   // тап по пустому месту — закрыть шторку
+  }
   drag = null;
 });
 $("#cv").addEventListener("pointercancel", () => { drag = null; stage.classList.remove("drag"); });
@@ -1412,6 +1523,58 @@ $("#fileProg").onchange = e => {
   rd.readAsText(f); e.target.value = "";
 };
 
+/* ---- Шторка на телефоне: тянем за ручку вверх или вниз ---- */
+(function sheetDrag(){
+  const grip = $("#sheetGrip"), panel = $("#side");
+  if (!grip || !panel) return;
+  let pid = null, y0 = 0, dy = 0, h = 0, lastY = 0, lastT = 0, vel = 0, moved = false;
+
+  grip.addEventListener("pointerdown", e => {
+    if (!isSheet()) return;
+    pid = e.pointerId; y0 = lastY = e.clientY; lastT = performance.now();
+    dy = 0; vel = 0; moved = false; h = panel.offsetHeight || 1;
+    panel.classList.add("dragging");
+    try { grip.setPointerCapture(pid); } catch(err){}
+  });
+
+  grip.addEventListener("pointermove", e => {
+    if (pid === null || e.pointerId !== pid) return;
+    const now = performance.now();
+    dy = e.clientY - y0;
+    vel = (e.clientY - lastY) / Math.max(1, now - lastT);
+    lastY = e.clientY; lastT = now;
+    if (Math.abs(dy) > 6) moved = true;
+    // немного можно перетянуть и выше открытого положения — выглядит живо
+    dy = Math.max(-40, Math.min(dy, h));
+    panel.style.transform = "translateY(" + dy + "px)";
+    if (e.cancelable) e.preventDefault();
+  });
+
+  const finish = e => {
+    if (pid === null || (e && e.pointerId !== pid)) return;
+    pid = null;
+    panel.classList.remove("dragging");
+    // короткий резкий флик решает всё, медленное — по пройденному расстоянию
+    const wasOpen = panel.classList.contains("open");
+    const goOpen = vel < -.3 ? true : vel > .3 ? false
+                 : (wasOpen ? dy < -h * .3 : dy > h * .28);
+    openSheet(goOpen);
+  };
+  grip.addEventListener("pointerup", finish);
+  grip.addEventListener("pointercancel", finish);
+
+  grip.addEventListener("click", () => {
+    if (!isSheet()) return;
+    if (moved){ moved = false; return; }    // это было перетаскивание, не тап
+    openSheet(!panel.classList.contains("open"));
+  });
+
+  // перевернули телефон или сменили окно — пересобираем положение шторки
+  window.addEventListener("resize", () => {
+    if (isSheet()) openSheet(panel.classList.contains("open"));
+  });
+})();
+
 document.addEventListener("keydown", e => {
   if (e.key === "/" && document.activeElement !== $("#q")){ e.preventDefault(); $("#q").focus(); }
   else if (e.key === "Escape"){ if (document.activeElement === $("#q")) $("#q").blur(); else { S.sel = null; renderSide(); refresh(); } }
@@ -1428,7 +1591,7 @@ function boot(data, st){
   MODEL = buildModel(data, STRUCT);
   load();
   if (S.onlyOpen) $("#fOnlyOpen").classList.add("on");
-  setPanel(!S.noPanel);
+  setPanel(!S.noPanel, true);      // на телефоне шторка на старте закрыта
   drawScene();
   buildRail();
   renderSide();
