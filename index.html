@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Карта квестов — DayZ</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#121a24; --panel:#151d2b; --panel2:#1b2434;
+    --line:#24304a; --line2:#2f3d5c;
+    --text:#e7edf7; --muted:#8494ad; --muted2:#64748b;
+    --accent:#4ade80; --accent2:#22d3ee;
+    --done:#4ade80; --active:#fbbf24; --open:#60a5fa; --locked:#5b6a85;
+    --rail:158px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg); color:var(--text); overflow:hidden;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+    font-size:14px;
+  }
+  button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+
+  /* ---------- каркас ---------- */
+  #app{display:flex;flex-direction:column;height:100%}
+  header.top{
+    display:flex;align-items:center;gap:12px;padding:10px 14px;
+    background:linear-gradient(180deg,#141c29,#111823);
+    border-bottom:1px solid var(--line);flex:0 0 auto;z-index:30;
+  }
+  .logo{display:flex;align-items:baseline;gap:9px;white-space:nowrap}
+  .logo b{font-size:17px;letter-spacing:.4px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .logo span{font-size:11px;color:var(--muted2)}
+
+  .stat{display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .stat .num{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+  .stat .lbl{font-size:11px;color:var(--muted);line-height:1.15}
+
+  .bar{width:150px;height:7px;border-radius:99px;background:#0b1017;border:1px solid var(--line);overflow:hidden}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--done),var(--accent2));width:0;transition:width .25s}
+
+  .grow{flex:1 1 auto}
+  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+
+  .field{position:relative;display:flex;align-items:center}
+  .field input{
+    background:#0b1017;border:1px solid var(--line);border-radius:8px;
+    padding:7px 10px 7px 30px;width:210px;outline:none;transition:border-color .15s
+  }
+  .field input:focus{border-color:var(--accent2)}
+  .field svg{position:absolute;left:9px;opacity:.55;pointer-events:none}
+
+  .btn{
+    background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    padding:7px 11px;border-radius:8px;cursor:pointer;white-space:nowrap;
+    transition:background .15s,border-color .15s,color .15s
+  }
+  .btn:hover{background:#232e42;border-color:var(--line2)}
+  .btn:active{transform:translateY(1px)}
+  .btn.on{background:#1d3a52;border-color:var(--accent2);color:#bff1ff}
+  .btn.ghost{background:transparent}
+  .btn.icon{padding:7px 9px;min-width:34px;text-align:center}
+  .btn.danger:hover{border-color:#b91c1c;color:#fca5a5}
+
+  /* ---------- рабочая область ---------- */
+  main{flex:1 1 auto;display:flex;min-height:0;position:relative}
+
+  .stage{flex:1 1 auto;position:relative;overflow:hidden;background:
+     radial-gradient(1100px 520px at 55% -15%, #18233a 0%, transparent 62%), var(--bg);
+     cursor:grab}
+  .stage.drag{cursor:grabbing}
+  svg{width:100%;height:100%;display:block;touch-action:none;user-select:none}
+
+  /* сетка */
+  #grid line{stroke:#ffffff;stroke-opacity:.028;stroke-width:1}
+
+  /* ---------- рельс веток ---------- */
+  .rail{
+    position:absolute;left:0;top:0;bottom:0;width:var(--rail);z-index:10;
+    pointer-events:none;border-right:1px solid #1b2434;
+    background:linear-gradient(90deg,#0d1117 0%,#0d1117 84%,rgba(13,17,23,0) 100%);
+  }
+  .rail-item{
+    position:absolute;left:8px;right:8px;padding:6px 9px;border-radius:9px;
+    background:rgba(21,29,43,.92);border:1px solid var(--line);
+    pointer-events:auto;cursor:pointer;transition:border-color .15s,background .15s;
+    overflow:hidden;
+  }
+  .rail-item:hover{border-color:var(--line2)}
+  .rail-item .t{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rail-item .p{font-size:10px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+  .rail-item .pb{height:4px;border-radius:99px;background:#0b1017;margin-top:5px;overflow:hidden;border:1px solid #1d2637}
+  .rail-item .pb>i{display:block;height:100%;width:0}
+  .rail-item.off{opacity:.35}
+  .rail-item.mini{padding:3px 9px;display:flex;align-items:center}
+  .rail-item.mini .pb,.rail-item.mini .p{display:none}
+  .rail-item.mini .t{font-size:10.5px;margin:0}
+  .lanelab .lane-label{pointer-events:auto;cursor:pointer;transition:fill .15s}
+  .lanelab:hover .lane-label{fill:#93a6c6}
+  .emptybox{cursor:pointer}
+  .emptybox:hover rect{stroke:#55688f;fill:#151b28}
+
+  /* ---------- узлы ---------- */
+  .node{cursor:pointer}
+  .node .nbox{fill:#18212f;stroke:#2a3650;stroke-width:1.4;transition:fill .15s,stroke .15s}
+  .node:hover .nbox{stroke:#5c7ba8;fill:#1d2939}
+  .node .nacc{stroke:none}
+  .node .nname{fill:var(--text);font-size:13px;font-weight:600;pointer-events:none}
+  .node .nmeta{fill:var(--muted);font-size:10.5px;pointer-events:none}
+  .node .nnum{fill:#0b1017;font-size:11px;font-weight:700;pointer-events:none;text-anchor:middle}
+  .node .nbadge{fill:#0b1017;stroke:#3a4a68;stroke-width:1.4}
+  .nsep{stroke:#26324a;stroke-width:1}
+  .nstat{font-size:12px;pointer-events:none;text-anchor:middle;font-weight:700}
+
+  .node.s-done .nbox{fill:#11251b;stroke:#2f7a4d}
+  .node.s-done .nname{fill:#a7f3c8}
+  .node.s-active .nbox{fill:#2a2113;stroke:#a9791d}
+  .node.s-active .nname{fill:#fde4a6}
+  .node.s-open .nbox{stroke:#3d5f8e}
+  .node.s-locked .nbox{fill:#151a24;stroke:#263041}
+  .node.s-locked .nname{fill:#6b7a94;font-weight:500}
+  .node.s-locked .nmeta{fill:#4d5a72}
+  .node.s-locked .nbadge{stroke:#2b3648}
+  .node.sel .nbox{stroke:#e2e8f0;stroke-width:2.2;filter:drop-shadow(0 0 7px rgba(120,170,255,.45))}
+  .node.dim{opacity:.16}
+  .node.hit .nbox{stroke:#facc15;stroke-width:2.4}
+
+  .edge{fill:none;stroke:#2c3a54;stroke-width:2;transition:stroke .15s,opacity .15s,stroke-width .15s}
+  .edge.e-open{stroke:#43628f}
+  .edge.e-done{stroke:#2f7a4d}
+  .edge.e-hi{stroke:#fbbf24;stroke-width:3.4;filter:drop-shadow(0 0 5px rgba(251,191,36,.5))}
+  .edge.dim{opacity:.08}
+  .lane-label{fill:#54637e;font-size:12px;font-weight:700;letter-spacing:2.6px;pointer-events:none}
+
+  /* ---------- панель квеста ---------- */
+  aside{
+    flex:0 0 372px;background:var(--panel);border-left:1px solid var(--line);
+    display:flex;flex-direction:column;min-height:0;z-index:20
+  }
+  aside.empty{flex-basis:300px}
+  .aside-head{
+    padding:13px 15px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#18212f,#141b27);flex:0 0 auto
+  }
+  .aside-head .eyebrow{font-size:10.5px;letter-spacing:1.7px;color:var(--muted2);text-transform:uppercase}
+  .aside-head h2{margin:5px 0 0;font-size:19px;line-height:1.22}
+  .aside-head .crumb{font-size:12px;color:var(--muted);margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .dot{width:9px;height:9px;border-radius:99px;display:inline-block;flex:0 0 auto}
+
+  .aside-body{overflow:auto;padding:14px 15px 26px;flex:1 1 auto}
+  .aside-body::-webkit-scrollbar{width:9px}
+  .aside-body::-webkit-scrollbar-thumb{background:#28344c;border-radius:9px}
+
+  .statebtns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px}
+  .statebtns .btn{padding:8px 4px;font-size:12px;text-align:center}
+
+  .sec{margin:16px 0 0}
+  .sec>h4{
+    margin:0 0 8px;font-size:10.5px;letter-spacing:1.7px;text-transform:uppercase;
+    color:var(--muted2);display:flex;align-items:center;gap:8px
+  }
+  .sec>h4:after{content:"";flex:1;height:1px;background:var(--line)}
+
+  ul.clean{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+  ul.clean li{
+    background:var(--bg2);border:1px solid var(--line);border-radius:8px;
+    padding:8px 10px;font-size:13px;line-height:1.4;position:relative;padding-left:28px
+  }
+  ul.clean li::before{
+    content:"";position:absolute;left:10px;top:12px;width:7px;height:7px;border-radius:99px;background:#3b4a66
+  }
+  ul.clean li.rw::before{background:#c084fc}
+  ul.clean li.nt::before{background:#fbbf24}
+  ul.clean li.done{opacity:.5;text-decoration:line-through}
+
+  ul.tasks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  ul.tasks li{display:flex;align-items:flex-start;gap:9px;background:var(--bg2);
+    border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:13px;line-height:1.4;cursor:pointer}
+  ul.tasks li:hover{border-color:var(--line2)}
+  ul.tasks li .box{
+    width:16px;height:16px;border-radius:5px;border:1.5px solid #3d4c68;flex:0 0 auto;margin-top:1px;
+    display:flex;align-items:center;justify-content:center;font-size:11px;color:#06210f
+  }
+  ul.tasks li.on .box{background:var(--done);border-color:var(--done)}
+  ul.tasks li.on span{opacity:.5;text-decoration:line-through}
+
+  .meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .chip{background:var(--bg2);border:1px solid var(--line);border-radius:99px;
+    padding:5px 11px;font-size:12px;color:var(--muted)}
+  .chip b{color:var(--text);font-weight:600}
+
+  .linkrow{display:flex;flex-wrap:wrap;gap:6px}
+  .qlink{
+    background:var(--bg2);border:1px solid var(--line);border-radius:7px;
+    padding:6px 10px;font-size:12px;cursor:pointer;color:var(--text)
+  }
+  .qlink:hover{border-color:var(--accent2);color:#bff1ff}
+  .qlink.locked{opacity:.55}
+  .qlink .n{color:var(--muted2);margin-right:6px}
+
+  .note{font-size:12px;color:var(--muted);line-height:1.5;white-space:pre-wrap;
+    background:var(--bg2);border:1px solid var(--line);border-left:3px solid var(--line2);
+    border-radius:7px;padding:9px 11px}
+  .empty-note{font-size:12.5px;color:var(--muted2);font-style:italic}
+
+  .placeholder{padding:26px 18px;color:var(--muted2);font-size:13px;line-height:1.65}
+  .placeholder b{color:var(--text)}
+  .placeholder kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;
+    border-radius:5px;padding:1px 6px;font-size:11px;font-family:inherit;color:var(--text)}
+
+  /* ---------- зум ---------- */
+  .zoomctl{position:absolute;right:14px;bottom:14px;display:flex;gap:6px;z-index:15}
+  .zoomctl .btn{background:rgba(21,29,43,.94);backdrop-filter:blur(4px)}
+  .zoompct{
+    position:absolute;right:14px;bottom:52px;z-index:15;font-size:11px;color:var(--muted);
+    background:rgba(21,29,43,.9);border:1px solid var(--line);border-radius:7px;padding:3px 8px;
+    font-variant-numeric:tabular-nums
+  }
+
+  .toast{
+    position:absolute;left:50%;bottom:22px;transform:translateX(-50%) translateY(14px);
+    background:rgba(21,29,43,.97);border:1px solid var(--line2);border-radius:9px;
+    padding:9px 15px;font-size:12.5px;opacity:0;pointer-events:none;transition:.22s;z-index:40
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  @media (max-width:980px){
+    aside{flex-basis:320px}
+    .toolbar .wide{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="logo"><b>Карта квестов</b><span id="srcnote">DayZ</span></div>
+
+    <div class="stat">
+      <span class="num" id="sDone">0</span>
+      <span class="lbl">выполнено<br><span id="sTotal">0</span> всего</span>
+    </div>
+    <div class="bar"><i id="sBar"></i></div>
+    <div class="stat" style="margin-left:4px">
+      <span class="num" id="sOpen" style="color:var(--open)">0</span>
+      <span class="lbl">доступно<br>сейчас</span>
+    </div>
+
+    <div class="grow"></div>
+
+    <div class="toolbar">
+      <label class="field wide">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+          <circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>
+        </svg>
+        <input id="q" type="search" placeholder="Поиск квеста, цели, награды…" autocomplete="off">
+      </label>
+      <button class="btn" id="fOnlyOpen" title="Показать только квесты, доступные для выполнения">Только доступные</button>
+      <button class="btn" id="fHideDone" title="Скрыть выполненные">Скрыть сделанные</button>
+      <select class="btn" id="fStatus">
+        <option value="all">Любой статус</option>
+        <option value="locked">Закрытые</option>
+        <option value="open">Доступные</option>
+        <option value="active">В работе</option>
+        <option value="done">Выполненные</option>
+      </select>
+      <button class="btn ghost" id="bExport" title="Скачать файл прогресса">Экспорт</button>
+      <button class="btn ghost" id="bImport" title="Загрузить файл прогресса">Импорт</button>
+      <button class="btn ghost danger" id="bReset" title="Сбросить весь прогресс">Сброс</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="stage" id="stage">
+      <svg id="cv">
+        <defs>
+          <marker id="ar-idle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#3b4a68"/>
+          </marker>
+          <marker id="ar-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#4b6d9e"/>
+          </marker>
+          <marker id="ar-done" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#3f9a63"/>
+          </marker>
+          <marker id="ar-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#fbbf24"/>
+          </marker>
+        </defs>
+        <g id="grid"></g>
+        <g id="world">
+          <g id="lanes"></g>
+          <g id="edges"></g>
+          <g id="nodes"></g>
+        </g>
+      </svg>
+
+      <div class="rail" id="rail"></div>
+
+      <div class="zoompct" id="zoompct">100%</div>
+      <div class="zoomctl">
+        <button class="btn icon" id="zOut" title="Отдалить">−</button>
+        <button class="btn" id="zFit" title="Вписать карту (F)">Вписать</button>
+        <button class="btn icon" id="zIn" title="Приблизить">+</button>
+      </div>
+
+      <div class="toast" id="toast"></div>
+    </div>
+
+    <aside id="side" class="empty"></aside>
+  </main>
+</div>
+
+<input type="file" id="fileProg" accept=".json" hidden>
+<input type="file" id="fileData" accept=".json" hidden>
+
+<script src="quests-data.js"></script>
+<script src="structure.js"></script>
+<script>
+(() => {
+"use strict";
+
+const SVGNS = "http://www.w3.org/2000/svg";
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+const PALETTE = ["#f0b429","#4ade80","#ef4444","#22d3ee","#a78bfa","#f472b6","#60a5fa","#fb923c"];
+
+/* ============================== 1. МОДЕЛЬ ============================== */
+
+function buildModel(raw, st){
+  const rawByTitle = new Map(raw.branches.map(b => [b.title, b]));
+  const useWiki = !(st && st.wikiCrossLinks === false);
+
+  // если файла схемы нет — строим ветки из вики как есть
+  const spec = (st && st.branches && st.branches.length)
+    ? st.branches
+    : raw.branches.map(b => ({ id:b.title, title:b.title, match:[b.title], root:true, _wiki:b }));
+
+  const branches = spec.map((s, i) => {
+    let src = s._wiki || null;
+    if (!src) for (const m of (s.match || [s.title])) { if (rawByTitle.has(m)) { src = rawByTitle.get(m); break; } }
+    const list = s.quests || (src ? src.quests : []);
+    return {
+      id: s.id || s.title,
+      title: s.title,
+      color: s.color || PALETTE[i % PALETTE.length],
+      intro: s.intro != null ? s.intro : (src ? src.intro : ""),
+      root: !!s.root,
+      needs: s.requires || [],
+      empty: !list.length,
+      _src: src,
+      quests: list.map((q, n) => ({
+        id: (s.id || s.title) + "#" + (n + 1),
+        branch: s.title, num: n + 1,
+        name: q.name || ("Квест " + (n + 1)),
+        heading: q.heading || q.name || ("Квест " + (n + 1)),
+        objectives: q.objectives || [], rewards: q.rewards || [],
+        notes: q.notes || [], timeLimit: q.timeLimit || "",
+        deps: new Set(), unlocks: []
+      }))
+    };
+  });
+
+  const byTitle = new Map();
+  branches.forEach(b => {
+    byTitle.set(b.title, b);
+    if (b._src) byTitle.set(b._src.title, b);
+  });
+  const qIndex = new Map();
+  branches.forEach(b => b.quests.forEach(q => qIndex.set(q.id, { q, branch:b })));
+
+  const find = (title, anchor) => {
+    const b = byTitle.get(title);
+    if (!b || !b.quests.length) return null;
+    if (!anchor) return b.quests[b.quests.length - 1];
+    const a = anchor.replace(/\s+/g, " ").trim();
+    return b.quests.find(q => q.heading === a)
+        || b.quests.find(q => q.name === a)
+        || b.quests.find(q => a.indexOf(q.name) >= 0)
+        || null;
+  };
+
+  // --- кандидаты в связи "квест Q требует D" ---
+  const cands = [];
+  const add = (q, dep) => { if (q && dep && q !== dep) cands.push({ q, dep }); };
+
+  const byId = new Map(branches.map(b => [b.id, b]));
+
+  branches.forEach(b => {
+    for (let i = 1; i < b.quests.length; i++) add(b.quests[i], b.quests[i - 1]);  // цепочка
+    if (b.root || !b.quests.length) return;                // root — доступна сразу
+    b.needs.forEach(need => {                               // «Открывает: …»
+      const a = Array.isArray(need) ? need : [need];
+      const src = byId.get(a[0]);
+      if (!src || !src.quests.length) return;
+      add(b.quests[0], a.length > 1 ? src.quests[a[1] - 1] : src.quests[src.quests.length - 1]);
+    });
+  });
+
+  // перекрёстные ссылки из примечаний вики: [[Ветка#Квест]]
+  if (useWiki) branches.forEach(b => {
+    if (!b._src || b.quests.length !== b._src.quests.length) return;
+    b.quests.forEach((q, n) => {
+      (b._src.quests[n].links || []).forEach(l => add(q, find(l.branch, l.anchor)));
+    });
+  });
+
+  // --- отсекаем связи, создающие цикл ---
+  const reached = new Map();
+  const reach = q => {
+    if (reached.has(q)) return reached.get(q);
+    const s = new Set();
+    for (const d of q.deps) {
+      s.add(d);
+      const t = qIndex.get(d);
+      if (t) reach(t.q).forEach(x => s.add(x));
+    }
+    reached.set(q, s);
+    return s;
+  };
+  const added = [];
+  cands.forEach(c => {
+    if (reach(c.dep).has(c.q.id)) return;
+    c.q.deps.add(c.dep.id);
+    reached.clear();
+    added.push(c);
+  });
+  added.forEach(c => c.dep.unlocks.push(c.q));
+
+  const quests = [];
+  branches.forEach(b => b.quests.forEach(q => quests.push(q)));
+  return { branches, quests, byTitle, qIndex };
+}
+
+/* ============================== 2. СОСТОЯНИЕ ============================== */
+
+const LS = "dzq.progress.v2";
+let MODEL = null;
+let RAW = window.QUEST_DATA || null;
+let STRUCT = window.QUEST_STRUCTURE || null;
+
+const S = {
+  done: new Set(), active: new Set(), tasks: {},   // tasks[id] = [bool,...]
+  hideDone: false, onlyOpen: false, status: "all",
+  query: "", offBranches: new Set(),
+  sel: null, hot: null
+};
+
+function load(){
+  try {
+    const j = JSON.parse(localStorage.getItem(LS) || "{}");
+    S.done   = new Set(j.done || []);
+    S.active = new Set(j.active || []);
+    S.tasks  = j.tasks || {};
+    S.hideDone = !!j.hideDone;
+    S.onlyOpen = !!j.onlyOpen;
+  } catch(e){}
+  // на file:// браузер может запретить localStorage — предупредим один раз
+  try {
+    localStorage.setItem(LS + ".probe", "1");
+    localStorage.removeItem(LS + ".probe");
+  } catch(e){
+    setTimeout(() => toast("Прогресс не сохранится: браузер блокирует localStorage. Запусти serve.ps1"), 900);
+  }
+}
+function save(){
+  try {
+    localStorage.setItem(LS, JSON.stringify({
+      done:[...S.done], active:[...S.active], tasks:S.tasks,
+      hideDone:S.hideDone, onlyOpen:S.onlyOpen
+    }));
+  } catch(e){}
+}
+
+function qStatus(q){
+  if (S.done.has(q.id)) return "done";
+  if (S.active.has(q.id)) return "active";
+  for (const d of q.deps) if (!S.done.has(d)) return "locked";
+  return "open";
+}
+
+/* ============================== 3. ГЕОМЕТРИЯ ============================== */
+
+const NW = 170, NH = 74, GX = 52, GY = 60, PAD = 26;
+const RAIL_W = 168;
+const POS = new Map();
+let BOUNDS = { x:0, y:0, w:1, h:1 };
+
+function layout(){
+  let y = PAD;
+  MODEL.branches.forEach(b => {
+    b.quests.forEach((q,i) => {
+      POS.set(q.id, { x: PAD + i * (NW + GX), y, w:NW, h:NH, b });
+    });
+    b._y = y; b._h = NH;
+    y += NH + GY;
+  });
+  const maxN = Math.max(...MODEL.branches.map(b => b.quests.length));
+  BOUNDS = { x:0, y:0, w: PAD*2 + maxN*(NW+GX) - GX, h: y - GY + PAD };
+}
+
+/* ============================== 4. КАМЕРА ============================== */
+
+const cam = { x:0, y:0, k:1 };
+const stage = $("#stage");
+
+function applyCam(){
+  $("#world").setAttribute("transform", `translate(${cam.x} ${cam.y}) scale(${cam.k})`);
+  $("#zoompct").textContent = Math.round(cam.k*100) + "%";
+  const w = stage.clientWidth;
+  $("#grid").innerHTML = "";
+  const step = 46 * cam.k;
+  if (step > 13){
+    let s = "", ox = cam.x % step, oy = cam.y % step;
+    for (let x = ox; x < w; x += step) s += `M${x.toFixed(1)} 0V2000`;
+    for (let yy = oy; yy < stage.clientHeight; yy += step) s += `M0 ${yy.toFixed(1)}H${w}`;
+    $("#grid").innerHTML = `<path d="${s}" fill="none"/>`;
+  }
+  positionRail();
+}
+
+function fit(){
+  const L = RAIL_W + 12;
+  const w = Math.max(120, stage.clientWidth - L - 14), h = stage.clientHeight - 18;
+  cam.k = clamp(Math.min(w / BOUNDS.w, h / BOUNDS.h), .18, 1.4);
+  cam.x = L + (w - BOUNDS.w*cam.k)/2;
+  cam.y = (h - BOUNDS.h*cam.k)/2;
+  applyCam();
+}
+function zoomAt(px, py, f){
+  const wx = (px - cam.x)/cam.k, wy = (py - cam.y)/cam.k;
+  cam.k = clamp(cam.k * f, .18, 2.6);
+  cam.x = px - wx*cam.k; cam.y = py - wy*cam.k;
+  applyCam();
+}
+function centerOn(id, k){
+  const p = POS.get(id); if (!p) return;
+  if (k) cam.k = clamp(k, .3, 1.8);
+  cam.x = stage.clientWidth/2  - (p.x + p.w/2)*cam.k;
+  cam.y = stage.clientHeight/2 - (p.y + p.h/2)*cam.k;
+  applyCam();
+}
+
+/* ============================== 5. РЕНДЕР СЦЕНЫ ============================== */
+
+function bez(x1,y1,x2,y2){
+  const d = Math.max(38, Math.abs(x2-x1) * .55);
+  return `M${x1} ${y1} C${x1+d} ${y1} ${x2-d} ${y2} ${x2} ${y2}`;
+}
+
+function wrap(s, max){
+  const words = String(s).split(/\s+/).filter(Boolean);
+  const lines = []; let cur = "";
+  for (const w of words){
+    const t = cur ? cur + " " + w : w;
+    if (t.length > max && cur){ lines.push(cur); cur = w; } else cur = t;
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > 2){ lines[1] = lines[1].slice(0, Math.max(3, max-1)) + "…"; }
+  return lines.slice(0,2);
+}
+
+function edgeList(){
+  const out = [];
+  MODEL.quests.forEach(q => {
+    q.deps.forEach(d => {
+      const a = POS.get(q.id), b = POS.get(d);
+      if (!a || !b) return;
+      const x1 = a.x + a.w, y1 = a.y + a.h/2, x2 = b.x, y2 = b.y + b.h/2;
+      out.push({ from:q.id, to:d, d: bez(x1,y1,x2,y2) });
+    });
+  });
+  return out;
+}
+const EDGES = [];
+
+function drawScene(){
+  layout();
+  EDGES.length = 0; EDGES.push(...edgeList());
+
+  // заголовки веток + заглушки для пустых веток
+  $("#lanes").innerHTML = MODEL.branches.map((b,i) => {
+    const lab = `<g class="lanelab" data-b="${i}">
+      <text class="lane-label" x="${PAD}" y="${b._y - 12}">${esc(b.title.toUpperCase())}</text></g>`;
+    if (!b.empty) return lab;
+    return lab + `<g class="emptybox" data-b="${i}">
+      <rect x="${PAD}" y="${b._y}" width="330" height="${NH}" rx="9"
+            fill="#121722" stroke="#33415c" stroke-width="1.4" stroke-dasharray="6 5"/>
+      <text x="${PAD+20}" y="${b._y+32}" fill="#6b7a94" font-size="12.5">Ветка пока пустая</text>
+      <text x="${PAD+20}" y="${b._y+50}" fill="#4d5a72" font-size="11">впиши квесты в structure.js</text>
+    </g>`;
+  }).join("");
+
+  $("#lanes").querySelectorAll("[data-b]").forEach(el =>
+    el.addEventListener("click", () => showBranch(+el.dataset.b)));
+
+  // связи
+  $("#edges").innerHTML = EDGES.map((e,i) =>
+    `<path class="edge" data-i="${i}" d="${e.d}" marker-end="url(#ar-idle)"/>`
+  ).join("");
+
+  // узлы
+  $("#nodes").innerHTML = MODEL.quests.map(q => {
+    const p = POS.get(q.id);
+    const lines = wrap(q.name, 21);
+    const nm = (q.objectives.length ? `${q.objectives.length} цел.` : "нет целей")
+             + " · " + q.rewards.length + " нагр.";
+    const meta = (q.timeLimit ? shortTime(q.timeLimit) + " · " : "") + nm;
+    return `<g class="node" data-id="${esc(q.id)}" transform="translate(${p.x} ${p.y})">
+      <rect class="nbox" x="0" y="0" width="${p.w}" height="${p.h}" rx="9"/>
+      <rect class="nacc" x="0" y="0" width="4.5" height="${p.h}" rx="2" fill="${p.b.color}"/>
+      <circle class="nbadge" cx="${p.w-20}" cy="20" r="11"/>
+      <text class="nnum" x="${p.w-20}" y="23.5">${q.num}</text>
+      ${lines.map((l,i) => `<text class="nname" x="14" y="${22 + i*16}">${esc(l)}</text>`).join("")}
+      <line class="nsep" x1="14" y1="${p.h-22}" x2="${p.w-12}" y2="${p.h-22}"/>
+      <text class="nmeta" x="14" y="${p.h-8}">${esc(meta)}</text>
+      <text class="nstat" x="${p.w-19}" y="${p.h-10}"></text>
+      <title>${esc(q.name)}</title>
+    </g>`;
+  }).join("");
+
+  refresh();
+}
+
+function shortTime(t){
+  const h = t.match(/(\d+)\s*(час|ч\.|дн|день)/i);
+  if (!h) return t.length > 12 ? t.slice(0,11)+"…" : t;
+  const n = h[1], u = h[2].toLowerCase();
+  if (/час|ч\./.test(u)) return n + " ч";
+  return n + " " + (n === "1" ? "день" : "дн");
+}
+
+const NODE_EL = new Map(), EDGE_EL = [];
+function cacheEls(){
+  NODE_EL.clear();
+  $("#nodes").querySelectorAll(".node").forEach(el => NODE_EL.set(el.dataset.id, el));
+  EDGE_EL.length = 0;
+  $("#edges").querySelectorAll(".edge").forEach(el => EDGE_EL[+el.dataset.i] = el);
+}
+
+const STAT = { done:"✓", active:"▶", open:"•", locked:"🔒" };
+const STATC = { done:"#4ade80", active:"#fbbf24", open:"#60a5fa", locked:"#5b6a85" };
+const MARK = { done:"ar-done", open:"ar-open", locked:"ar-idle", active:"ar-open" };
+
+function matches(q, query){
+  if (!query) return true;
+  const b = MODEL.byTitle.get(q.branch);
+  const s = [q.name, q.heading, b ? b.title : "", q.branch,
+             q.objectives, q.rewards, q.notes, q.timeLimit]
+            .join(" ").toLowerCase();
+  return query.toLowerCase().split(/\s+/).filter(Boolean).every(w => s.includes(w));
+}
+
+function refresh(){
+  cacheEls();
+  let done = 0, openNow = 0;
+
+  MODEL.quests.forEach(q => {
+    const st = qStatus(q), el = NODE_EL.get(q.id);
+    if (!el) return;
+    const off = S.offBranches.has(q.branch);
+    let dim = off;
+    if (S.query) dim = dim || !matches(q, S.query);
+    if (S.hideDone && st === "done") dim = true;
+    if (S.onlyOpen  && st !== "open" && st !== "active") dim = true;
+    if (S.status !== "all" && st !== S.status) dim = true;
+
+    el.setAttribute("class", "node s-" + st + (S.sel === q.id ? " sel" : "")
+      + (dim ? " dim" : "") + (S.query && matches(q, S.query) ? " hit" : ""));
+    el.querySelector(".nstat").textContent = STAT[st];
+    el.querySelector(".nstat").setAttribute("fill", STATC[st]);
+    el.querySelector(".nstat").setAttribute("opacity", st === "open" ? ".35" : "1");
+
+    if (st === "done") done++;
+    if (st === "open") openNow++;
+    el.style.display = (S.hideDone && st === "done") ? "none" : "";
+  });
+
+  EDGES.forEach((e,i) => {
+    const el = EDGE_EL[i]; if (!el) return;
+    const t = MODEL.qIndex.get(e.to).q, st = qStatus(t);
+    const qFrom = MODEL.qIndex.get(e.from).q;
+    const off = S.offBranches.has(qFrom.branch) || S.offBranches.has(t.branch);
+    let cls = "edge", mk = MARK[st];
+    if (st === "done") { cls += " e-done"; }
+    else if (st !== "locked") { cls += " e-open"; }
+    if (S.sel && (e.from === S.sel || e.to === S.sel)) { cls += " e-hi"; mk = "ar-hi"; }
+    let dim = off;
+    if (S.query) dim = dim || !(matches(t, S.query) || matches(qFrom, S.query));
+    if (S.hideDone && st === "done") dim = true;
+    if (S.onlyOpen && st !== "open" && st !== "active") dim = true;
+    if (S.status !== "all" && st !== S.status) dim = true;
+    if (dim) cls += " dim";
+    el.setAttribute("class", cls);
+    el.setAttribute("marker-end", `url(#${mk})`);
+  });
+
+  $("#sDone").textContent  = done;
+  $("#sTotal").textContent = MODEL.quests.length;
+  $("#sOpen").textContent  = openNow;
+  $("#sBar").style.width = (MODEL.quests.length ? done/MODEL.quests.length*100 : 0) + "%";
+  positionRail(done);
+  if (S.sel) renderSide();
+}
+
+function positionRail(done){
+  if (!MODEL) return;
+  const items = $("#rail").querySelectorAll(".rail-item");
+  MODEL.branches.forEach((b,i) => {
+    const it = items[i]; if (!it) return;
+    const h = Math.max(22, b._h * cam.k);
+    it.style.top = (cam.y + b._y * cam.k + 2) + "px";
+    it.style.height = h + "px";
+    it.classList.toggle("mini", h < 46);
+    it.querySelector(".pb>i").style.width = (branchProgress(b)*100) + "%";
+    it.querySelector(".p").textContent = b.empty ? "пусто"
+      : `${b.quests.filter(q => S.done.has(q.id)).length} / ${b.quests.length}`;
+  });
+}
+function branchProgress(b){
+  if (!b.quests.length) return 0;
+  return b.quests.filter(q => S.done.has(q.id)).length / b.quests.length;
+}
+function buildRail(){
+  $("#rail").innerHTML = MODEL.branches.map((b,i) => `
+    <div class="rail-item" data-bi="${i}">
+      <div class="t" style="color:${b.color}">${esc(b.title.replace(/^Путь\s*/,""))}</div>
+      <div class="p" data-p="${i}"></div>
+      <div class="pb"><i style="background:${b.color}"></i></div>
+    </div>`).join("");
+  $("#rail").querySelectorAll(".rail-item").forEach(it => {
+    it.addEventListener("click", () => showBranch(+it.dataset.bi));
+    it.addEventListener("dblclick", () => { S.offBranches.clear(); buildRail(); refresh(); });
+  });
+}
+
+/* ============================== 6. ПАНЕЛЬ КВЕСТА ============================== */
+
+const side = $("#side");
+
+function renderSide(){
+  const id = S.sel;
+  if (!id || !MODEL.qIndex.has(id)){
+    side.className = "empty";
+    side.innerHTML = `<div class="placeholder">
+      <b>Выбери квест на карте</b><br><br>
+      Клик по названию ветки слева или по её подписи на карте — откроет ветку целиком.<br><br>
+      <kbd>колесо</kbd> — зум · <kbd>тянуть</kbd> — панорама<br>
+      <kbd>/</kbd> — поиск · <kbd>F</kbd> — вписать карту · <kbd>Esc</kbd> — закрыть<br><br>
+      Пустые ветки вписаны в <b>structure.js</b> — их тексты ждут тебя.
+    </div>`;
+    return;
+  }
+  const q = MODEL.qIndex.get(id).q, b = MODEL.qIndex.get(id).branch;
+  const st = qStatus(q);
+  side.className = "";
+  side.innerHTML = `
+    <div class="aside-head">
+      <div class="eyebrow">${esc(b.title)} · квест ${q.num}</div>
+      <h2>${esc(q.name)}</h2>
+      <div class="crumb">
+        <span class="dot" style="background:${b.color}"></span>
+        <span>Статус:</span><b style="color:${STATC[st]}">${({done:"выполнен",active:"в работе",open:"доступен",locked:"закрыт"})[st]}</b>
+      </div>
+    </div>
+
+    <div class="aside-body">
+      <div class="statebtns">
+        <button class="btn ${st==="active"?"on":""}" data-act="active">▶ В работе</button>
+        <button class="btn ${st==="done"?"on":""}" data-act="done">✓ Выполнен</button>
+        <button class="btn" data-act="reset">↺ Сброс</button>
+      </div>
+
+      ${q.timeLimit ? `<div class="meta"><span class="chip">⏱ <b>${esc(q.timeLimit)}</b></span>
+         <span class="chip">🎁 <b>${q.rewards.length}</b> наград</span></div>` : ""}
+
+      <div class="sec"><h4>Цели — ${q.objectives.length}</h4>
+        ${q.objectives.length ? `<ul class="tasks">${q.objectives.map((o,i) => {
+            const on = !!(S.tasks[id] && S.tasks[id][i]);
+            return `<li class="${on?"on":""}" data-task="${i}">
+              <span class="box">${on?"✓":""}</span><span>${esc(o)}</span></li>`;
+          }).join("")}</ul>`
+          : `<div class="empty-note">На вики цели для этого квеста не расписаны — уточни у NPC на сервере.</div>`}
+      </div>
+
+      <div class="sec"><h4>Награды — ${q.rewards.length}</h4>
+        ${q.rewards.length ? `<ul class="clean">${q.rewards.map(r => `<li class="rw">${esc(r)}</li>`).join("")}</ul>`
+          : `<div class="empty-note">Не указаны.</div>`}
+      </div>
+
+      ${q.notes.length ? `<div class="sec"><h4>Примечания</h4>
+        <ul class="clean">${q.notes.map(n => `<li class="nt">${esc(n)}</li>`).join("")}</ul></div>` : ""}
+
+      <div class="sec"><h4>Требует перед собой</h4>
+        ${q.deps.size ? `<div class="linkrow">${[...q.deps].map(d => {
+            const e = MODEL.qIndex.get(d);
+            if (!e) return "";
+            const ds = qStatus(e.q);
+            return `<span class="qlink ${ds==="locked"?"locked":""}" data-go="${esc(d)}">
+              <span class="n">${e.q.num}.</span>${esc(e.q.name)}
+              <b style="color:${STATC[ds]}">${ds==="done"?" ✓":""}</b></span>`;
+          }).join("")}</div>` : `<div class="empty-note">Предыдущие квесты не нужны.</div>`}
+      </div>
+
+      ${q.unlocks.length ? `<div class="sec"><h4>Открывает</h4>
+        <div class="linkrow">${q.unlocks.map(u => {
+          const e = MODEL.qIndex.get(u.id);
+          if (!e) return "";
+          return `<span class="qlink" data-go="${esc(u.id)}"><span class="n">${u.num}.</span>${esc(u.name)}</span>`;
+        }).join("")}</div></div>` : ""}
+
+      <div class="sec"><h4>Действия</h4>
+        <div class="linkrow">
+          <button class="qlink" data-act="copy">Копировать текст</button>
+          <button class="qlink" data-act="goto">Показать на карте</button>
+          <button class="qlink" data-act="branch">Вся ветка: ${esc(b.title)}</button>
+        </div>
+      </div>
+    </div>`;
+
+  side.querySelectorAll("[data-act]").forEach(el => el.addEventListener("click", () => onAct(el.dataset.act, q)));
+  side.querySelectorAll("[data-task]").forEach(el => el.addEventListener("click", () => {
+    const i = +el.dataset.task;
+    (S.tasks[id] = S.tasks[id] || [])[i] = !S.tasks[id][i];
+    save(); refresh();
+  }));
+  side.querySelectorAll("[data-go]").forEach(el => el.addEventListener("click", () => select(el.dataset.go, true)));
+}
+
+function onAct(act, q){
+  if (act === "done"){ S.done.add(q.id); S.active.delete(q.id); }
+  else if (act === "active"){ if (S.done.has(q.id)) S.done.delete(q.id); S.active.add(q.id); }
+  else if (act === "reset"){ S.done.delete(q.id); S.active.delete(q.id); delete S.tasks[q.id]; }
+  else if (act === "goto"){ centerOn(q.id, Math.max(cam.k, .85)); toast("Показано на карте"); }
+  else if (act === "branch"){
+    S.offBranches.clear(); S.offBranches.add(bTitle(q)); refresh();
+    toast("Показана только ветка: " + bTitle(q));
+  }
+  else if (act === "copy"){ copyQuest(q); }
+  save(); refresh();
+}
+function bTitle(q){ return MODEL.qIndex.get(q.id).branch.title; }
+
+function copyQuest(q){
+  const b = bTitle(q);
+  const L = [];
+  L.push(`${b} — квест ${q.num}: «${q.name}»`, "─".repeat(40));
+  if (q.timeLimit) L.push(`Срок: ${q.timeLimit}`);
+  if (q.objectives.length) L.push("", "Цели:", ...q.objectives.map(o => "• " + o));
+  if (q.rewards.length)    L.push("", "Награды:", ...q.rewards.map(o => "• " + o));
+  if (q.notes.length)      L.push("", "Примечания:", ...q.notes.map(o => "• " + o));
+  const txt = L.join("\n");
+  (navigator.clipboard?.writeText(txt) || Promise.reject())
+    .then(() => toast("Скопировано в буфер обмена"))
+    .catch(() => { window.prompt("Скопируй текст:", txt); });
+}
+
+function select(id, fly){
+  S.sel = id; renderSide(); refresh();
+  if (fly && POS.has(id)) centerOn(id, Math.max(cam.k, .8));
+}
+
+/* панель ветки: описание + список квестов */
+function showBranch(i){
+  const b = MODEL.branches[i]; if (!b) return;
+  S.sel = null;
+  const need = b.needs.map(n => {
+    const a = Array.isArray(n) ? n : [n];
+    const src = MODEL.branches.find(x => x.id === a[0]);
+    if (!src) return null;
+    const q = a.length > 1 ? src.quests[a[1]-1] : src.quests[src.quests.length-1];
+    return q ? `${src.title} · квест ${q.num}` : src.title;
+  }).filter(Boolean);
+
+  side.className = "";
+  side.innerHTML = `
+    <div class="aside-head">
+      <div class="eyebrow">Ветка</div>
+      <h2>${esc(b.title)}</h2>
+      <div class="crumb"><span class="dot" style="background:${b.color}"></span>
+        <span>${b.empty ? "квестов пока нет" : b.quests.length + " квестов"}</span></div>
+    </div>
+    <div class="aside-body">
+      ${b.root ? `<div class="meta"><span class="chip">Доступна <b>сразу</b></span></div>`
+        : need.length ? `<div class="sec" style="margin-top:0"><h4>Открывается после</h4>
+            <div class="linkrow">${need.map(n => `<span class="qlink" data-showb="${esc(n.split(' · ')[0])}">${esc(n)}</span>`).join("")}</div></div>`
+        : `<div class="meta"><span class="chip">Открывается <b>после завершения другой ветки</b></span></div>`}
+
+      ${b.empty ? `<div class="sec"><h4>Как заполнить</h4>
+        <div class="note">Этой ветки нет на вики, поэтому текстов пока нет.
+Открой <b>structure.js</b>, найди ветку «${esc(b.title)}» и впиши квесты в поле <b>quests</b>:
+
+{ title: '${esc(b.title)}', quests: [
+    { name: 'Первый квест',
+      objectives: ['Убить зомби — 5 шт.'],
+      rewards: ['Пистолет — 1 шт.'],
+      timeLimit: '1 день (24 часа)' }
+] }</div></div>`
+      : `<div class="sec"><h4>Квесты ветки</h4><div class="linkrow">
+          ${b.quests.map(q => `<span class="qlink" data-go="${esc(q.id)}">
+            <span class="n">${q.num}.</span>${esc(q.name)}</span>`).join("")}</div></div>`}
+
+      ${b.intro ? `<div class="sec"><h4>Описание ветки (с вики)</h4>
+        <div class="note">${esc(b.intro)}</div></div>` : ""}
+
+      <div class="sec"><h4>Действия</h4><div class="linkrow">
+        <button class="qlink" data-hide="${i}">${S.offBranches.has(b.title) ? "Показать ветку" : "Скрыть ветку"}</button>
+        ${b.quests.length ? `<button class="qlink" data-zoomall="1">Показать ветку на карте</button>` : ""}
+      </div></div>
+    </div>`;
+
+  side.querySelector("[data-hide]").addEventListener("click", () => {
+    const t = b.title;
+    if (S.offBranches.has(t)) S.offBranches.delete(t); else S.offBranches.add(t);
+    buildRail(); refresh(); showBranch(i);
+  });
+  side.querySelector("[data-zoomall]")?.addEventListener("click", () => {
+    S.offBranches.clear(); buildRail(); refresh();
+    const p = POS.get(b.quests[0].id);
+    cam.k = clamp((stage.clientWidth - RAIL_W - 30) / (b.quests.length*(NW+GX)), .2, 1);
+    cam.x = RAIL_W + 20;
+    cam.y = (stage.clientHeight - b._h*cam.k)/2;
+    applyCam(); showBranch(i);
+  });
+
+  side.querySelectorAll("[data-go]").forEach(el => el.addEventListener("click", () => select(el.dataset.go, true)));
+  side.querySelectorAll("[data-showb]").forEach(el => el.addEventListener("click", () => {
+    const j = MODEL.branches.findIndex(x => x.title === el.dataset.showb);
+    if (j >= 0) showBranch(j);
+  }));
+  refresh();
+}
+
+/* ============================== 7. СОБЫТИЯ ============================== */
+
+function toast(msg){
+  const t = $("#toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 1900);
+}
+
+let drag = null;
+$("#cv").addEventListener("pointerdown", e => {
+  if (e.button !== 0 && e.pointerType === "mouse") return;
+  drag = { x:e.clientX, y:e.clientY, ox:cam.x, oy:cam.y, moved:false, id:e.target.closest(".node")?.dataset.id };
+  stage.classList.add("drag"); $("#cv").setPointerCapture(e.pointerId);
+});
+$("#cv").addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+  cam.x = drag.ox + dx; cam.y = drag.oy + dy;
+  applyCam();
+});
+$("#cv").addEventListener("pointerup", e => {
+  stage.classList.remove("drag");
+  if (drag && !drag.moved && drag.id) select(drag.id);
+  drag = null;
+});
+$("#cv").addEventListener("pointercancel", () => { drag = null; stage.classList.remove("drag"); });
+$("#cv").addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = $("#cv").getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.13 : 1/1.13);
+}, { passive:false });
+
+$("#zIn").onclick  = () => zoomAt(stage.clientWidth/2, stage.clientHeight/2, 1.25);
+$("#zOut").onclick = () => zoomAt(stage.clientWidth/2, stage.clientHeight/2, 1/1.25);
+$("#zFit").onclick = () => fit();
+
+$("#q").addEventListener("input", e => { S.query = e.target.value.trim(); refresh(); });
+$("#fHideDone").onclick = e => { S.hideDone = !S.hideDone; e.target.classList.toggle("on", S.hideDone); save(); refresh(); };
+$("#fOnlyOpen").onclick = e => { S.onlyOpen = !S.onlyOpen; e.target.classList.toggle("on", S.onlyOpen); save(); refresh(); };
+$("#fStatus").onchange = e => { S.status = e.target.value; refresh(); };
+$("#bReset").onclick = () => {
+  if (!confirm("Сбросить весь прогресс по всем квестам?")) return;
+  S.done.clear(); S.active.clear(); S.tasks = {}; save(); refresh(); toast("Прогресс сброшен");
+};
+
+$("#bExport").onclick = () => {
+  const blob = new Blob([JSON.stringify({ done:[...S.done], active:[...S.active], tasks:S.tasks }, null, 1)],
+    { type:"application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `dayz-quests-progress-${new Date().toISOString().slice(0,10)}.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+  toast("Файл прогресса скачан");
+};
+$("#bImport").onclick = () => $("#fileProg").click();
+$("#fileProg").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const j = JSON.parse(rd.result);
+      S.done = new Set(j.done || []); S.active = new Set(j.active || []); S.tasks = j.tasks || {};
+      save(); refresh(); toast("Прогресс загружен");
+    } catch(err){ alert("Не получилось прочитать файл: " + err.message); }
+  };
+  rd.readAsText(f); e.target.value = "";
+};
+
+document.addEventListener("keydown", e => {
+  if (e.key === "/" && document.activeElement !== $("#q")){ e.preventDefault(); $("#q").focus(); }
+  else if (e.key === "Escape"){ if (document.activeElement === $("#q")) $("#q").blur(); else { S.sel = null; renderSide(); refresh(); } }
+  else if ((e.key === "f" || e.key === "F" || e.key === "а" || e.key === "А") && document.activeElement !== $("#q")) fit();
+});
+window.addEventListener("resize", applyCam);
+
+/* ============================== 8. СТАРТ ============================== */
+
+function boot(data, st){
+  RAW = data; STRUCT = st || null;
+  MODEL = buildModel(data, STRUCT);
+  load();
+  if (S.hideDone) $("#fHideDone").classList.add("on");
+  if (S.onlyOpen) $("#fOnlyOpen").classList.add("on");
+  const empty = MODEL.branches.filter(b => b.empty).length;
+  $("#srcnote").textContent = (STRUCT ? "схема: structure.js" : "по вики")
+    + (data.generated ? " · тексты от " + data.generated.slice(0,10) : "")
+    + (empty ? " · пустых веток: " + empty : "");
+  drawScene();
+  buildRail();
+  renderSide();
+  setView();
+  // в фоновой вкладке rAF может не сработать — подстрахуемся
+  setTimeout(setView, 60);
+  window.addEventListener("load", setView);
+}
+function setView(){
+  const root = MODEL.branches.find(b => b.root && b.quests.length) || MODEL.branches.find(b => b.quests.length);
+  if (!root || !root.quests.length) { fit(); centerOnEmpty(); return; }
+  const p = POS.get(root.quests[0].id);
+  cam.k = .62;
+  cam.x = RAIL_W + 18 - p.x*cam.k;                      // прижать к левому краю
+  cam.y = Math.max(10, (stage.clientHeight - BOUNDS.h*cam.k)/2);
+  applyCam();
+}
+function centerOnEmpty(){
+  cam.k = .7;
+  cam.x = RAIL_W + 40;
+  cam.y = 30;
+  applyCam();
+}
+
+if (RAW && RAW.branches) boot(RAW, STRUCT);
+else {
+  side.innerHTML = `<div class="placeholder"><b>Не найден файл quests-data.js</b><br><br>
+    Запусти <code>sync-wiki.ps1</code>, чтобы скачать квесты с вики, или загрузи свой JSON:
+    <div class="linkrow" style="margin-top:12px">
+      <button class="qlink" id="bData">Загрузить quests.json</button></div></div>`;
+  $("#bData").onclick = () => $("#fileData").click();
+}
+$("#fileData").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try { boot(JSON.parse(rd.result), STRUCT); toast("Загружено: " + f.name); }
+    catch(err){ alert("Файл не подходит: " + err.message); }
+  };
+  rd.readAsText(f); e.target.value = "";
+};
+
+})();
+</script>
+</body>
+</html>
