@@ -1431,29 +1431,83 @@ function toast(msg, icon){
   toast._t = setTimeout(() => t.classList.remove("show"), icon ? 2800 : 1900);
 }
 
+// Жесты по карте: один палец — таскание, два — щипок (сведение/разведение).
 let drag = null;
+const PTR = new Map();        // активные указатели: id -> точка в координатах #cv
+let pinch = null;             // опорные значения щипка
+
+function cvPoint(e){
+  const r = $("#cv").getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+// Второй палец превращает жест в щипок. Запоминаем масштаб и ту мировую точку,
+// что оказалась под серединой пальцев, — к ней карта и прижимается до конца жеста.
+function beginPinch(){
+  const p = [...PTR.values()];
+  if (p.length < 2) return;
+  const cx = (p[0].x + p[1].x)/2, cy = (p[0].y + p[1].y)/2;
+  const d0 = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  if (d0 < 8) return;                        // пальцы рядом — рано мерить щипок
+  pinch = { d0:d0, k0:cam.k, wx:(cx - cam.x)/cam.k, wy:(cy - cam.y)/cam.k };
+  if (drag) drag.moved = true;               // щипок не должен превратиться в тап
+}
+
+// Расстояние между пальцами задаёт масштаб, их середина — сдвиг. Оба значения
+// считаем от начала жеста, иначе карта уезжает от пальцев и «плывёт».
+function updatePinch(){
+  const p = [...PTR.values()];
+  if (p.length < 2 || !pinch) return false;
+  const cx = (p[0].x + p[1].x)/2, cy = (p[0].y + p[1].y)/2;
+  const d  = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1;
+  cam.k = clamp(pinch.k0 * d/pinch.d0, .18, 2.6);
+  cam.x = cx - pinch.wx*cam.k;
+  cam.y = cy - pinch.wy*cam.k;
+  applyCam();
+  return true;
+}
+
+function endPointers(){
+  pinch = null;
+  if (PTR.size === 1){                       // палец остался — тащим им дальше
+    const p = [...PTR.values()][0];
+    drag = { x:p.x, y:p.y, ox:cam.x, oy:cam.y, moved:true, id:null };
+  } else drag = null;
+  if (!PTR.size) stage.classList.remove("drag");
+}
+
 $("#cv").addEventListener("pointerdown", e => {
   if (e.button !== 0 && e.pointerType === "mouse") return;
-  drag = { x:e.clientX, y:e.clientY, ox:cam.x, oy:cam.y, moved:false, id:e.target.closest(".node")?.dataset.id };
-  stage.classList.add("drag");
+  PTR.set(e.pointerId, cvPoint(e));
   try { $("#cv").setPointerCapture(e.pointerId); } catch(err){}
+  stage.classList.add("drag");
+  if (PTR.size === 1){
+    const p = PTR.get(e.pointerId);
+    drag = { x:p.x, y:p.y, ox:cam.x, oy:cam.y, moved:false, id:e.target.closest(".node")?.dataset.id };
+  } else beginPinch();
 });
 $("#cv").addEventListener("pointermove", e => {
+  if (!PTR.has(e.pointerId)) return;
+  const p = cvPoint(e);
+  PTR.set(e.pointerId, p);
+  if (pinch){ updatePinch(); return; }
   if (!drag) return;
-  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  const dx = p.x - drag.x, dy = p.y - drag.y;
   if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
   cam.x = drag.ox + dx; cam.y = drag.oy + dy;
   applyCam();
 });
 $("#cv").addEventListener("pointerup", e => {
-  stage.classList.remove("drag");
-  if (drag && !drag.moved){
-    if (drag.id) select(drag.id);
+  PTR.delete(e.pointerId);
+  const tap = drag && !drag.moved && PTR.size === 0;
+  const id  = drag && drag.id;
+  endPointers();
+  if (tap){
+    if (id) select(id);
     else if (isSheet()) openSheet(false);   // тап по пустому месту — закрыть шторку
   }
-  drag = null;
 });
-$("#cv").addEventListener("pointercancel", () => { drag = null; stage.classList.remove("drag"); });
+$("#cv").addEventListener("pointercancel", e => { PTR.delete(e.pointerId); endPointers(); });
 $("#cv").addEventListener("wheel", e => {
   e.preventDefault();
   const r = $("#cv").getBoundingClientRect();
